@@ -59,11 +59,18 @@
         document.getElementById('picker-container').innerHTML = '<p>Error: API key not found.</p>';
         return;
       }
+      if (!parentOrigin) {
+        console.error('External Picker: Parent origin not captured. Cannot create picker.');
+        postErrorToParent('Parent origin not available for Picker.');
+        document.getElementById('picker-container').innerHTML = '<p>Error: Parent origin unknown.</p>';
+        return;
+      }
 
-      console.log('External Picker: Creating Picker with API Key:', apiKey);
+      console.log('External Picker: Creating Picker with API Key:', apiKey, 'and Parent Origin:', parentOrigin);
       const picker = new google.picker.PickerBuilder()
-        .setAppId(apiKey) // Or your project ID if setAppId is preferred
+        .setAppId(apiKey) 
         .setOAuthToken(oauthToken)
+        .setOrigin(parentOrigin) // <--- CRITICAL CHANGE HERE
         .addView(google.picker.ViewId.DOCS)
         .setDeveloperKey(apiKey)
         .setCallback(pickerCallback)
@@ -72,7 +79,6 @@
         .build();
       picker.setVisible(true);
       
-      // Clear "Loading..." message
       const container = document.getElementById('picker-container');
       if (container) container.innerHTML = ''; 
     }
@@ -86,7 +92,6 @@
       const action = data[google.picker.Response.ACTION];
       if (action === google.picker.Action.PICKED) {
         const documents = data[google.picker.Response.DOCUMENTS];
-        // Post a message to the parent window (extension's picker.html)
         window.parent.postMessage({
           type: 'PICKER_RESULT_FROM_IFRAME',
           action: 'picked',
@@ -116,26 +121,26 @@
         } else {
             console.warn("External Picker: Error occurred but parentOrigin not set yet:", errorMessage);
         }
-         // Display error in the iframe as well
         const container = document.getElementById('picker-container');
         if (container) {
             container.innerHTML = `<p>Error: ${errorMessage}</p>`;
         }
     }
 
-    // --- Message Handling from Parent (Extension) ---
     window.addEventListener('message', (event) => {
-      // IMPORTANT: Add origin check for security
-      // For now, assuming the first message comes from the trusted parent
-      // and sets the origin for future communication.
-      // A more robust approach would be for the parent to send its extension ID,
-      // and this page could construct the expected chrome-extension://<id> origin.
       if (!parentOrigin) {
-          parentOrigin = event.origin;
-          console.log('External Picker: Parent origin set to:', parentOrigin);
+          // The first message received MUST be from the extension to set the origin
+          // Add more robust checks here if needed, e.g. check data structure
+          if (event.data && event.data.type === 'INIT_PICKER') {
+            parentOrigin = event.origin;
+            console.log('External Picker: Parent origin set to:', parentOrigin);
+          } else {
+            console.warn('External Picker: First message not INIT_PICKER or origin already set. Ignoring:', event);
+            return;
+          }
       } else if (event.origin !== parentOrigin) {
           console.warn('External Picker: Message received from unexpected origin:', event.origin, 'Expected:', parentOrigin);
-          return; // Ignore messages from unexpected origins
+          return; 
       }
 
       const data = event.data;
@@ -159,9 +164,6 @@
     });
 
     console.log('External Picker: Waiting for INIT_PICKER message from parent.');
-    // Optional: Send a message to parent indicating iframe is ready,
-    // so parent knows when it's safe to post the INIT_PICKER message.
-    // window.parent.postMessage({ type: 'IFRAME_READY' }, '*'); // Be careful with targetOrigin '*'
   </script>
 </body>
 </html>
